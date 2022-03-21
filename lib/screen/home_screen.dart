@@ -10,6 +10,11 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  bool attendanceCheckDone = false;
+
+  // 생성이 된 다음 정의 할 수 있기 때문에 ? 사용
+  GoogleMapController? mapController;
+
   static final LatLng companyLatLng = LatLng(
     37.5233373,
     126.921252,
@@ -57,7 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: renderAppBar(),
-      body: FutureBuilder(
+      body: FutureBuilder<String>(
         //future의 상태가 변경될 때 마다 빌드
         future: checkPermission(),
         builder: (BuildContext context, AsyncSnapshot<dynamic> snapshot) {
@@ -92,12 +97,19 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       _CustomGoogleMap(
                         initialPositon: initialPositon,
-                        circle: isWithinRange
+                        circle: attendanceCheckDone
+                            ? checkDoneCircle
+                            : isWithinRange
                             ? inDistanceCircle
                             : notInDistanceCircle,
                         marker: marker,
+                        onMapCreated: onMapCreated,
                       ),
-                      _AttendanceButton(),
+                      _AttendanceButton(
+                        isWithinRange: isWithinRange,
+                        onPressed: onAttendancePressed,
+                        attendanceCheckDone: attendanceCheckDone,
+                      ),
                     ],
                   );
                 });
@@ -111,7 +123,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  checkPermission() async {
+  Future<String> checkPermission() async {
     final isLocationEnabled = await Geolocator.isLocationServiceEnabled();
 
     if (!isLocationEnabled) {
@@ -145,7 +157,67 @@ class _HomeScreenState extends State<HomeScreen> {
           fontWeight: FontWeight.w700,
         ),
       ),
+      actions: [
+        IconButton(
+          onPressed: () async {
+            if (mapController == null) {
+              return; //맵 컨트롤러가 생성이 되지 않았을 경우
+            }
+
+            final location = await Geolocator.getCurrentPosition();
+
+            mapController!.animateCamera(
+              CameraUpdate.newLatLng(
+                LatLng(
+                  location.latitude,
+                  location.longitude,
+                ),
+              ),
+            );
+          },
+          color: Colors.blue,
+          icon: Icon(
+            Icons.my_location,
+          ),
+        )
+      ],
     );
+  }
+
+  onAttendancePressed() async {
+    final result = await showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: Text('출근하기'),
+            content: Text('출근 체크를 하시겠습니까?'),
+            actions: [
+              // 취소 버튼
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop(false);
+                },
+                child: const Text('취소'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop(true);
+                },
+                child: const Text('확인'),
+              ),
+            ],
+          );
+        });
+
+    if (result) {
+      setState(() {
+        attendanceCheckDone = true;
+      });
+    }
+  }
+
+  onMapCreated(GoogleMapController controller) {
+    mapController = controller;
   }
 }
 
@@ -153,12 +225,14 @@ class _CustomGoogleMap extends StatelessWidget {
   final CameraPosition initialPositon;
   final Circle circle;
   final Marker marker;
+  final MapCreatedCallback onMapCreated;
 
   const _CustomGoogleMap({
     Key? key,
     required this.initialPositon,
     required this.circle,
     required this.marker,
+    required this.onMapCreated,
   }) : super(key: key);
 
   @override
@@ -172,18 +246,49 @@ class _CustomGoogleMap extends StatelessWidget {
         myLocationButtonEnabled: false,
         circles: Set.from([circle]),
         markers: Set.from([marker]),
+        onMapCreated: onMapCreated,
       ),
     );
   }
 }
 
 class _AttendanceButton extends StatelessWidget {
-  const _AttendanceButton({Key? key}) : super(key: key);
+  final bool isWithinRange;
+  final VoidCallback onPressed;
+  final bool attendanceCheckDone;
+
+  const _AttendanceButton({
+    Key? key,
+    required this.isWithinRange,
+    required this.onPressed,
+    required this.attendanceCheckDone,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: Text('출근'),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.timelapse_outlined,
+            size: 50.0,
+            color: attendanceCheckDone
+                ? Colors.green
+                : isWithinRange
+                ? Colors.blue
+                : Colors.red,
+          ),
+          const SizedBox(
+            height: 20,
+          ),
+          if (!attendanceCheckDone && isWithinRange)
+            TextButton(
+              onPressed: onPressed,
+              child: Text('출근하기'),
+            ),
+        ],
+      ),
     );
   }
 }
